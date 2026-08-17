@@ -45,7 +45,17 @@
 #include <Physics/Collide/Shape/Compound/Collection/SimpleMesh/hkpSimpleMeshShape.h>
 #include <Physics/Collide/Shape/Compound/Tree/Mopp/hkpMoppBvTreeShape.h>
 #include <Physics/Collide/Shape/Compound/Tree/Mopp/hkpMoppUtility.h>
-#include <Physics/Collide/Shape/Deprecated/CompressedMesh/hkpCompressedMeshShapeBuilder.h>
+// hkpCompressedMeshShapeBuilder lives in different places depending on the SDK.
+// Havok 2012 moved it under Deprecated/; in 2010 it is still a first-class shape.
+#if defined(__has_include)
+#  if __has_include(<Physics/Collide/Shape/Deprecated/CompressedMesh/hkpCompressedMeshShapeBuilder.h>)
+#    include <Physics/Collide/Shape/Deprecated/CompressedMesh/hkpCompressedMeshShapeBuilder.h>
+#  else
+#    include <Physics/Collide/Shape/Compound/Collection/CompressedMesh/hkpCompressedMeshShapeBuilder.h>
+#  endif
+#else
+#  include <Physics/Collide/Shape/Deprecated/CompressedMesh/hkpCompressedMeshShapeBuilder.h>
+#endif
 #include <Physics/Collide/Util/Welding/hkpMeshWeldingUtility.h>
 #include <Physics/Internal/Collide/Mopp/Code/hkpMoppCode.h>
 
@@ -59,6 +69,11 @@
 #define HK_FEATURE_PRODUCT_PHYSICS
 #include <Common/Base/Config/hkProductFeatures.cxx> 
 
+// The CMake build links Havok itself, picking the libraries that the configured
+// SDK actually ships. It defines MOPPER_NO_LIB_PRAGMAS to suppress the list below,
+// which is fixed to Havok 2012 and names hkcdCollide/hkcdInternal -- libraries that
+// do not exist before Havok 2011, where that code still lived in hkBase/hkInternal.
+#ifndef MOPPER_NO_LIB_PRAGMAS
 #pragma comment(lib, "hkBase.lib")
 #pragma comment(lib, "hkCompat.lib")
 #pragma comment(lib, "hkGeometryUtilities.lib")
@@ -73,6 +88,7 @@
 #pragma comment(lib, "hkpInternal.lib")
 #pragma comment(lib, "hkpUtilities.lib")
 #pragma comment(lib, "hkpVehicle.lib")
+#endif
 
 /*-------------------------------------------------------------------------*/
 static void HK_CALL errorReport(const char* msg, void*)
