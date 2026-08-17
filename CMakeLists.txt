@@ -1,4 +1,24 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.25)
+
+#
+# MSVC's /Zi writes debug info to a .pdb through mspdbsrv.exe, a background
+# service that does not work under Wine -- it fails with
+# "fatal error C1902: Program database manager mismatch".
+#
+# /Z7 puts the same debug info straight into the object files and needs no
+# service, so select it before project() runs, while it can still affect the
+# compiler checks. Requires CMake 3.25 for CMP0141.
+#
+set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "Embedded" CACHE STRING
+    "Debug information format (Embedded avoids mspdbsrv, which Wine cannot run)")
+
+#
+# Embedding a side-by-side manifest runs mt.exe, which fails under Wine when
+# CMake drives it through vs_link_exe. A console tool has no use for one, so
+# switch it off. This must be in the linker flags before project() so the
+# compiler check links too.
+#
+set(CMAKE_EXE_LINKER_FLAGS_INIT "/MANIFEST:NO")
 
 project(mopper CXX)
 
@@ -78,6 +98,7 @@ endif()
 add_executable(mopper
     mopper/mopper.cpp
     mopper/stdafx.cpp
+    mopper/crt_compat.cpp
 )
 
 target_include_directories(mopper PRIVATE
@@ -110,6 +131,13 @@ if(MSVC)
         /NODEFAULTLIB:MSVCRTD
         /STACK:4194304
     )
+
+    # The Havok libraries are Visual Studio 2008 objects. VS2015 reorganised the
+    # C runtime into the Universal CRT and made many stdio functions inline, so
+    # those old objects reference symbols that no longer exist (_printf,
+    # __snprintf, __vsnprintf, _vsprintf). This library defines them again.
+    # __iob_func is not covered by it and is shimmed in mopper/crt_compat.cpp.
+    target_link_libraries(mopper PRIVATE legacy_stdio_definitions.lib)
 endif()
 
 install(TARGETS mopper RUNTIME DESTINATION bin)

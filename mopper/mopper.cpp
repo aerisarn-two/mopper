@@ -42,6 +42,14 @@
 
 #include <Common/Base/hkBase.h>
 #include <Common/Base/Memory/System/Util/hkMemoryInitUtil.h>
+
+// hkMallocAllocator arrives transitively in Havok 2012 but not in 2010, where
+// main() would otherwise fail on hkMallocAllocator::m_defaultMallocAllocator.
+#if defined(__has_include)
+#  if __has_include(<Common/Base/Memory/Allocator/Malloc/hkMallocAllocator.h>)
+#    include <Common/Base/Memory/Allocator/Malloc/hkMallocAllocator.h>
+#  endif
+#endif
 #include <Physics/Collide/Shape/Compound/Collection/SimpleMesh/hkpSimpleMeshShape.h>
 #include <Physics/Collide/Shape/Compound/Tree/Mopp/hkpMoppBvTreeShape.h>
 #include <Physics/Collide/Shape/Compound/Tree/Mopp/hkpMoppUtility.h>

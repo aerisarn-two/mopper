@@ -56,6 +56,18 @@ Point at a different library flavour with `HAVOK_LIB_SUBDIR`, for example:
 HAVOK_LIB_SUBDIR=win32_net_9-0/debug_multithreaded ./scripts/build.sh /path/to/havok
 ```
 
+## What the build has to work around
+
+All four of these are handled automatically; they are recorded because each one
+fails with an error that does not obviously point at its cause.
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `fatal error C1902: Program database manager mismatch` | `/Zi` writes debug info through `mspdbsrv.exe`, a background service Wine cannot run | `CMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded`, i.e. `/Z7`, which puts debug info in the object files. Must be set before `project()` |
+| `MT: command ... failed (exit code 0x1)` | CMake embeds a side-by-side manifest with `mt.exe`, which fails under Wine | `/MANIFEST:NO`. A console tool has no use for a manifest |
+| `error C2653: 'hkMallocAllocator' is not a class or namespace name` | The header arrives transitively in Havok 2012 but not 2010 | Include `Common/Base/Memory/Allocator/Malloc/hkMallocAllocator.h` explicitly, guarded by `__has_include` |
+| `unresolved external symbol _printf`, `__snprintf`, `__vsnprintf`, `_vsprintf`, `___iob_func` | Havok's objects are Visual Studio 2008. VS2015 reorganised the C runtime into the Universal CRT, inlining most stdio functions and dropping others | Link `legacy_stdio_definitions.lib`, plus a hand-written `__iob_func` in `mopper/crt_compat.cpp`. The array behind it must **not** be called `_iob`, or it collides with `libucrt.lib(_file.obj)` |
+
 ## Static runtime
 
 The build forces `/MT` and passes `/NODEFAULTLIB:MSVCRT /NODEFAULTLIB:MSVCRTD`,
