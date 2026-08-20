@@ -67,6 +67,22 @@
 #include <Physics/Collide/Util/Welding/hkpMeshWeldingUtility.h>
 #include <Physics/Internal/Collide/Mopp/Code/hkpMoppCode.h>
 
+//
+// A MOPP tree indexes a shape *collection*, and hkpMoppUtility::buildCode takes a
+// hkpShapeContainer rather than a mesh -- so a list of primitives is as valid an
+// input as a mesh is. What that needs is the primitives themselves, as real Havok
+// shapes, which is what these headers are for.
+//
+#include <Physics/Collide/Shape/Compound/Collection/List/hkpListShape.h>
+#include <Physics/Collide/Shape/Convex/Sphere/hkpSphereShape.h>
+#include <Physics/Collide/Shape/Convex/Box/hkpBoxShape.h>
+#include <Physics/Collide/Shape/Convex/Capsule/hkpCapsuleShape.h>
+#include <Physics/Collide/Shape/Convex/Cylinder/hkpCylinderShape.h>
+#include <Physics/Collide/Shape/Convex/ConvexVertices/hkpConvexVerticesShape.h>
+#include <Physics/Collide/Shape/Convex/ConvexTransform/hkpConvexTransformShape.h>
+#include <Physics/Collide/Shape/Misc/Transform/hkpTransformShape.h>
+#include <Common/Internal/ConvexHull/hkGeometryUtility.h>
+
 #include <Common/Base/keycode.cxx>
 // see Common/Base/Config/hkProductFeatures.inl
 #undef HK_FEATURE_PRODUCT_AI
@@ -255,6 +271,287 @@ void mopperSimpleMesh(std::istream & infile)
 		k_phkpMoppCode->removeReference();
 		k_phkpMoppCode = NULL;
 	}
+}
+
+/*-------------------------------------------------------------------------*/
+//
+//  Reads one shape and everything under it.
+//
+//  A MOPP tree indexes a shape collection, and Havok will build one over any
+//  hkpShapeContainer -- a list of primitives as readily as a mesh. What it cannot
+//  do is guess the primitives, so they arrive described and are built here as real
+//  Havok shapes, which is what ck-cmd's HKXWrangler does before it calls the same
+//  buildCode.
+//
+//  Every length is in Havok units (metres). A shape is a keyword and its numbers:
+//
+//    sphere   <radius>
+//    box      <hx> <hy> <hz> <convex radius>
+//    capsule  <ax> <ay> <az> <bx> <by> <bz> <radius>
+//    cylinder <ax> <ay> <az> <bx> <by> <bz> <radius>
+//    convex   <n> <x y z> * n <convex radius>
+//    transform <16 floats, column major> <shape>
+//    list     <n> <shape> * n
+//
+//  Returns NULL on anything unreadable, having consumed as much as it could; the
+//  caller reports rather than guessing at what was meant.
+//
+//  isConvex says whether what came back can be used where a hkpConvexShape is
+//  wanted. Havok 2010 has no way to ask a shape that -- there is no
+//  hkpShape::isConvexShapeType until later SDKs -- and since this function is the
+//  thing that built it, it already knows.
+//
+hkpShape* readShape(std::istream& infile, bool& isConvex)
+{
+	isConvex = false;
+
+	std::string	kind;
+
+	infile >> kind;
+
+	if (infile.eof() || infile.fail())		return NULL;
+
+	if (kind == "sphere")
+	{
+		float	radius(0.0f);
+
+		infile >> radius;
+		if (infile.fail())		return NULL;
+
+		isConvex = true;
+
+		return new hkpSphereShape(radius);
+	}
+
+	if (kind == "box")
+	{
+		float	hx(0.0f), hy(0.0f), hz(0.0f), radius(0.0f);
+
+		infile >> hx >> hy >> hz >> radius;
+		if (infile.fail())		return NULL;
+
+		isConvex = true;
+
+		return new hkpBoxShape(hkVector4(hx, hy, hz), radius);
+	}
+
+	if (kind == "capsule" || kind == "cylinder")
+	{
+		float	ax(0.0f), ay(0.0f), az(0.0f);
+		float	bx(0.0f), by(0.0f), bz(0.0f), radius(0.0f);
+
+		infile >> ax >> ay >> az >> bx >> by >> bz >> radius;
+		if (infile.fail())		return NULL;
+
+		hkVector4	a(ax, ay, az);
+		hkVector4	b(bx, by, bz);
+
+		isConvex = true;
+
+		//  A capsule's two points are the centres of its hemispherical caps; a
+		//  cylinder's are on the flat end discs. Havok keeps them apart, so this
+		//  does too rather than treating one as the other.
+		if (kind == "capsule")		return new hkpCapsuleShape(a, b, radius);
+
+		return new hkpCylinderShape(a, b, radius);
+	}
+
+	if (kind == "convex")
+	{
+		int		count(0);
+		float	radius(0.0f);
+
+		infile >> count;
+		if (infile.fail() || count <= 0)		return NULL;
+
+		hkArray<hkVector4>	points;
+
+		for (int i(0); i < count; ++i)
+		{
+			float	x(0.0f), y(0.0f), z(0.0f);
+
+			infile >> x >> y >> z;
+			if (infile.fail())		return NULL;
+
+			points.pushBack(hkVector4(x, y, z));
+		}
+
+		infile >> radius;
+		if (infile.fail())		return NULL;
+
+		//  Havok needs the face planes as well as the points and does not derive
+		//  them, so the hull is built rather than assumed -- the same call
+		//  HKXWrangler makes.
+		hkStridedVertices	stridedIn(points);
+		hkGeometry			hull;
+		hkArray<hkVector4>	planes;
+
+		hkGeometryUtility::createConvexGeometry(stridedIn, hull, planes);
+
+		hkpConvexVerticesShape*	shape(new hkpConvexVerticesShape(hull.m_vertices, planes));
+
+		shape->setRadius(radius);
+		isConvex = true;
+
+		return shape;
+	}
+
+	if (kind == "transform")
+	{
+		float	m[16];
+
+		for (int i(0); i < 16; ++i)
+		{
+			infile >> m[i];
+			if (infile.fail())		return NULL;
+		}
+
+		bool		childIsConvex(false);
+		hkpShape*	child(readShape(infile, childIsConvex));
+
+		if (child == NULL)		return NULL;
+
+		hkTransform	transform;
+
+		transform.set4x4ColumnMajor(m);
+
+		//  A convex child keeps the convex form, so what comes back can still be
+		//  used where a hkpConvexShape is wanted -- which is what a
+		//  bhkConvexTransformShape is for.
+		hkpShape*	result(NULL);
+
+		if (childIsConvex)
+		{
+			result = new hkpConvexTransformShape((hkpConvexShape*)child, transform);
+			isConvex = true;
+		}
+		else
+		{
+			result = new hkpTransformShape(child, transform);
+		}
+
+		child->removeReference();
+
+		return result;
+	}
+
+	if (kind == "list")
+	{
+		int	count(0);
+
+		infile >> count;
+		if (infile.fail() || count <= 0)		return NULL;
+
+		hkArray<hkpShape*>	children;
+
+		for (int i(0); i < count; ++i)
+		{
+			bool		childIsConvex(false);
+			hkpShape*	child(readShape(infile, childIsConvex));
+
+			if (child == NULL)
+			{
+				for (int j(0); j < children.getSize(); ++j)		children[j]->removeReference();
+
+				return NULL;
+			}
+
+			children.pushBack(child);
+		}
+
+		hkpListShape*	list(new hkpListShape((const hkpShape*const*)children.begin(), children.getSize()));
+
+		//  hkpListShape takes its own references.
+		for (int i(0); i < children.getSize(); ++i)		children[i]->removeReference();
+
+		return list;
+	}
+
+	return NULL;
+}
+
+/*-------------------------------------------------------------------------*/
+hkpMoppCode* buildCodeContainer(const hkpShapeContainer* container, const hkpMoppCompilerInput *mfr)
+{
+	__try
+	{
+		return hkpMoppUtility::buildCode(container, *mfr);
+	}
+	__except(EXCEPTION_EXECUTE_HANDLER)
+	{
+		return NULL;
+	}
+}
+
+/*-------------------------------------------------------------------------*/
+//
+//  Builds a MOPP tree over a collection that is not a mesh.
+//
+//  The game has 86 meshes whose tree wraps a bhkListShape -- a mudcrab's legs are
+//  six capsules under one -- and every other command here builds over triangles,
+//  whose leaves are triangle indices. A tree over a list has leaves that are child
+//  indices instead, and feeding it a tessellation would produce a valid-looking
+//  tree pointing at children that do not exist.
+//
+//  The output matches -msm, so a caller can read either the same way, with the
+//  welding count zero: a list has no triangles to weld.
+//
+void mopperCollection(std::istream & infile)
+{
+	bool					isConvex          (false);
+	hkpShape*				shape             (readShape(infile, isConvex));
+	hkpMoppCompilerInput	mfr;
+
+	if (shape == NULL)
+	{
+		std::cerr << "mopper: could not read the shape collection" << std::endl;
+		return;
+	}
+
+	const hkpShapeContainer*	container(NULL);
+
+	if (shape->getType() == HK_SHAPE_LIST)
+	{
+		container = ((hkpListShape*)shape)->getContainer();
+	}
+
+	if (container == NULL)
+	{
+		std::cerr << "mopper: a MOPP tree indexes a shape collection, and this is not one"
+				  << std::endl;
+
+		shape->removeReference();
+
+		return;
+	}
+
+	//  The PC build, as HKXWrangler sets it: chunk subdivision is for PS3.
+	mfr.m_enableChunkSubdivision = false;
+
+	hkpMoppCode*	code(buildCodeContainer(container, &mfr));
+
+	if (code != NULL)
+	{
+		std::cout.precision(16);
+		std::cout << code->m_info.m_offset(0) << std::endl;
+		std::cout << code->m_info.m_offset(1) << std::endl;
+		std::cout << code->m_info.m_offset(2) << std::endl;
+		std::cout << code->m_info.getScale() << std::endl;
+		std::cout << code->m_data.getSize() << std::endl;
+
+		for (int i(0); i < code->m_data.getSize(); ++i)
+		{
+			std::cout << int(code->m_data[i]) << std::endl;
+		}
+
+		//  No welding info: a list of primitives has no triangles to weld. The zero
+		//  keeps the shape of the output the same as -msm.
+		std::cout << 0 << std::endl;
+
+		code->removeReference();
+	}
+
+	shape->removeReference();
 }
 
 /*-------------------------------------------------------------------------*/
@@ -502,7 +799,9 @@ int main(int argc, char *argv[])
 "usage: mopper.exe [command] [<file>|--]\n\n"
 "command:\n"
 "  -msm\t: create MOPP data for bhkSimpleMeshShape\n"
-"  -ccm\t: create complete bhkCompressedMeshShape\n\n"
+"  -ccm\t: create complete bhkCompressedMeshShape\n"
+"  -clm\t: create MOPP data for a shape collection that is not a mesh,\n"
+"      \t  such as the bhkListShape of primitives under most MOPP trees\n\n"
 "where <file> (-- for standard input) is of the following format\n for bhkSimpleMeshShape:\n"
 "<number of vertices>\n"
 "<vertex 1 x> <vertex 1 y> <vertex 1 z>\n"
@@ -537,7 +836,19 @@ int main(int argc, char *argv[])
 "<number of triangles geometry n>\n"
 "<triangle 1 index 0> <triangle 1 index 1> <triangle 1 index 2>\n"
 "<triangle 2 index 0> <triangle 2 index 1> <triangle 2 index 2>\n"
-"...\n\n";
+"...\n\n"
+"where <file> (-- for standard input) is one shape, for -clm. Every length is in\n"
+"Havok units. A shape is a keyword and its numbers, and two of them nest:\n"
+"  sphere <radius>\n"
+"  box <half x> <half y> <half z> <convex radius>\n"
+"  capsule <a x> <a y> <a z> <b x> <b y> <b z> <radius>\n"
+"  cylinder <a x> <a y> <a z> <b x> <b y> <b z> <radius>\n"
+"  convex <number of points> <x> <y> <z> ... <convex radius>\n"
+"  transform <16 floats, column major> <shape>\n"
+"  list <number of shapes> <shape> ...\n\n"
+"The outermost shape has to be a list, since that is what a tree indexes. The\n"
+"output is the same as -msm's, with the welding count zero: a list of primitives\n"
+"has no triangles to weld.\n\n";
 		return 0;
 	}
 
@@ -599,6 +910,17 @@ int main(int argc, char *argv[])
 		else
 		{
 			mopperCompressedMesh(std::ifstream(argv[2], std::ifstream::in));
+		}
+	}
+	else if (std::strcmp(argv[1], "-clm") == 0)
+	{
+		if (std::strcmp(argv[2], "--") == 0)
+		{
+			mopperCollection(std::cin);
+		}
+		else
+		{
+			mopperCollection(std::ifstream(argv[2], std::ifstream::in));
 		}
 	}
 	else  //  backward compatibility
