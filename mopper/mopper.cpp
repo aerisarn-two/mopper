@@ -117,7 +117,16 @@
 /*-------------------------------------------------------------------------*/
 static void HK_CALL errorReport(const char* msg, void*)
 {
-	std::cout << msg;
+	//
+	//  Diagnostics go to stderr, because stdout is the result.
+	//
+	//  Havok reports through this callback while it works -- inconsistent triangle
+	//  winding, for one, which the game's own meshes provoke by the dozen. Written
+	//  to stdout they land in the middle of the numbers a caller is reading, and
+	//  that caller sees a mopper that failed rather than one that warned: 96 warning
+	//  lines in the middle of 17,637 numbers, for a shape that built perfectly well.
+	//
+	std::cerr << msg;
 }
 
 /*-------------------------------------------------------------------------*/
