@@ -693,7 +693,13 @@ void mopperCompressedMesh(std::istream & infile, bool withMaterials)
 
 	//  create shape and compute welding
 	//  initialize MoppInfo
-	mci.m_enableChunkSubdivision = true;
+	//
+	//  The PC build, as HKXWrangler sets it (HKXWrangler.cpp:3268): chunk
+	//  subdivision is for PS3. This is the MOPP compiler's own setting and not the
+	//  shape builder's above -- it decides how the tree is laid out, and it is what
+	//  the NIF's MOPP Code/Build Type reports. 2,065 of the 2,088 compressed mesh
+	//  trees Skyrim ships say BUILT_WITHOUT_CHUNK_SUBDIVISION.
+	mci.m_enableChunkSubdivision = false;
 
 	//  build MoppCode
 	pMoppCode = buildCodeCompressedMesh(pCompMesh, &mci);
