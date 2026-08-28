@@ -573,7 +573,7 @@ void mopperCollection(std::istream & infile)
 //
 //  ck-cmd does the same two things: hkpNamedMeshMaterial entries on the shape
 //  (HKXWrangler.cpp:3354) and a material index per triangle (FBXWrangler.cpp:1886).
-void mopperCompressedMesh(std::istream & infile, bool withMaterials)
+int mopperCompressedMesh(std::istream & infile, bool withMaterials)
 {
 	hkpCompressedMeshShape*			pCompMesh    (NULL);
 	hkpMoppCode*					pMoppCode    (NULL);
@@ -608,6 +608,16 @@ void mopperCompressedMesh(std::istream & infile, bool withMaterials)
 	{
 		infile >> numMaterials;
 
+		//  A count this did not really read is a loop over garbage. Checked here and
+		//  after every count below: a caller sending the wrong shape of input should
+		//  get an error rather than a page fault, and the material table changed that
+		//  shape. Empty input used to fault at a null read here.
+		if (infile.fail() || numMaterials > 65536)
+		{
+			std::cerr << "mopper: bad material count" << std::endl;
+			return 1;
+		}
+
 		//  A table of none, with triangles that all claim entry 0, is a caller's
 		//  mistake rather than a description of the mesh. One entry is the least it
 		//  can mean.
@@ -615,11 +625,20 @@ void mopperCompressedMesh(std::istream & infile, bool withMaterials)
 
 		if (numMaterials > 0)
 		{
-			pCompMesh->m_namedMaterials.setSize(numMaterials);
+			//  Built by pushBack rather than setSize and assignment. hkArray::setSize
+			//  does not run constructors, so the entries it makes hold an hkStringPtr
+			//  that was never initialised -- and hkpNamedMeshMaterial's own default
+			//  constructor is what gives it a name. Writing a member of one of those
+			//  and leaving the rest is how a name comes to be read from a pointer
+			//  nobody set.
+			pCompMesh->m_namedMaterials.clear();
 
 			for (int i(0); i < numMaterials; ++i)
 			{
-				pCompMesh->m_namedMaterials[i].m_filterInfo = i;
+				hkpNamedMeshMaterial	material;
+
+				material.m_filterInfo = i;
+				pCompMesh->m_namedMaterials.pushBack(material);
 				pCompMesh->m_materials.pushBack(i);
 			}
 		}
@@ -627,6 +646,12 @@ void mopperCompressedMesh(std::istream & infile, bool withMaterials)
 
 	//  read number of geometries
 	infile >> numGeometries;
+
+	if (infile.fail() || numGeometries < 0 || numGeometries > 1000000)
+	{
+		std::cerr << "mopper: bad geometry count" << std::endl;
+		return 1;
+	}
 
 	//  read geometries
 	for (int idxGeo(0); idxGeo < numGeometries; ++idxGeo)
@@ -652,6 +677,12 @@ void mopperCompressedMesh(std::istream & infile, bool withMaterials)
 		//  read number of vertices
 		infile >> numVertices;
 
+		if (infile.fail() || numVertices < 0 || numVertices > 10000000)
+		{
+			std::cerr << "mopper: bad vertex count" << std::endl;
+			return 1;
+		}
+
 		//  read each vertex
 		for (int i(0); i < numVertices; ++i)
 		{
@@ -659,7 +690,7 @@ void mopperCompressedMesh(std::istream & infile, bool withMaterials)
 			infile >> x >> y >> z;
 
 			//  early break on eof or error
-			if (infile.eof() || infile.fail())		return;
+			if (infile.eof() || infile.fail())		return 1;
 
 			//  add vertex to vector
 			vertices.pushBack(hkVector4(x, y, z));
@@ -667,6 +698,12 @@ void mopperCompressedMesh(std::istream & infile, bool withMaterials)
 
 		//  read number of triangles
 		infile >> numTriangles;
+
+		if (infile.fail() || numTriangles < 0 || numTriangles > 10000000)
+		{
+			std::cerr << "mopper: bad triangle count" << std::endl;
+			return 1;
+		}
 
 		//  read each triangle
 		for (int i(0); i < numTriangles; ++i)
@@ -677,7 +714,7 @@ void mopperCompressedMesh(std::istream & infile, bool withMaterials)
 			infile >> triangle.m_a >> triangle.m_b >> triangle.m_c;
 
 			//  early break on eof or error
-			if (infile.eof() || infile.fail())		return;
+			if (infile.eof() || infile.fail())		return 1;
 
 			//  the material every triangle of this geometry carries, which is what
 			//  Havok reads to give the chunk its material index
@@ -706,8 +743,22 @@ void mopperCompressedMesh(std::istream & infile, bool withMaterials)
 	//  trees Skyrim ships say BUILT_WITHOUT_CHUNK_SUBDIVISION.
 	mci.m_enableChunkSubdivision = false;
 
+	//  Nothing was read, so there is no shape to index. Havok faults rather than
+	//  refusing, which is how empty input became a page fault.
+	if (pCompMesh->m_chunks.getSize() == 0 && pCompMesh->m_bigVertices.getSize() == 0)
+	{
+		std::cerr << "mopper: no geometry to build a MOPP for" << std::endl;
+		return 1;
+	}
+
 	//  build MoppCode
 	pMoppCode = buildCodeCompressedMesh(pCompMesh, &mci);
+
+	if (pMoppCode == NULL)
+	{
+		std::cerr << "mopper: could not build MOPP code for this mesh" << std::endl;
+		return 1;
+	}
 
 	//  create pseudo shape
 	hkpMoppBvTreeShape	bvtree(pCompMesh, pMoppCode);
@@ -839,12 +890,25 @@ void mopperCompressedMesh(std::istream & infile, bool withMaterials)
 		pMoppCode->removeReference();
 		pMoppCode = NULL;
 	}
+
+	return 0;
 }
 
 /*-------------------------------------------------------------------------*/
 //int _tmain(int argc, _TCHAR* argv[])
 int main(int argc, char *argv[])
 {
+	//  Every mode below reads argv[2], so one argument is not enough for any of
+	//  them: without this, "mopper -ccm" alone walks off the end of argv.
+	if (argc > 1 && argc < 3
+		&& std::strcmp(argv[1], "--help") != 0
+		&& std::strcmp(argv[1], "--license") != 0)
+	{
+		std::cerr << "mopper: " << argv[1] << " needs a file, or -- for standard input"
+				  << std::endl;
+		return 1;
+	}
+
 	if (argc < 2) {
 		std::cout
 			<< "Mopper. Copyright (c) 2008-2012, NIF File Format Library and Tools." << std::endl
@@ -974,22 +1038,22 @@ int main(int argc, char *argv[])
 	{
 		if (std::strcmp(argv[2], "--") == 0)
 		{
-			mopperCompressedMesh(std::cin, false);
+			return mopperCompressedMesh(std::cin, false);
 		}
 		else
 		{
-			mopperCompressedMesh(std::ifstream(argv[2], std::ifstream::in), false);
+			return mopperCompressedMesh(std::ifstream(argv[2], std::ifstream::in), false);
 		}
 	}
 	else if (std::strcmp(argv[1], "-ccmm") == 0)
 	{
 		if (std::strcmp(argv[2], "--") == 0)
 		{
-			mopperCompressedMesh(std::cin, true);
+			return mopperCompressedMesh(std::cin, true);
 		}
 		else
 		{
-			mopperCompressedMesh(std::ifstream(argv[2], std::ifstream::in), true);
+			return mopperCompressedMesh(std::ifstream(argv[2], std::ifstream::in), true);
 		}
 	}
 	else if (std::strcmp(argv[1], "-clm") == 0)
