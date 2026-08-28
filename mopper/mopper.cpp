@@ -564,7 +564,16 @@ void mopperCollection(std::istream & infile)
 }
 
 /*-------------------------------------------------------------------------*/
-void mopperCompressedMesh(std::istream & infile)
+//  Builds a bhkCompressedMeshShape, optionally with per-geometry materials.
+//
+//  Havok decides a chunk's material from the triangles that went into it, so the
+//  material has to be on the geometry before the shape is built. Without it the
+//  chunk's m_materialInfo is never written and holds whatever was in that memory,
+//  which is what the "material indices later on" note below used to leave behind.
+//
+//  ck-cmd does the same two things: hkpNamedMeshMaterial entries on the shape
+//  (HKXWrangler.cpp:3354) and a material index per triangle (FBXWrangler.cpp:1886).
+void mopperCompressedMesh(std::istream & infile, bool withMaterials)
 {
 	hkpCompressedMeshShape*			pCompMesh    (NULL);
 	hkpMoppCode*					pMoppCode    (NULL);
@@ -584,6 +593,27 @@ void mopperCompressedMesh(std::istream & infile)
 	//  create compressedMeshShape
 	pCompMesh = shapeBuilder.createMeshShape(0.001f, hkpCompressedMeshShape::MATERIAL_SINGLE_VALUE_PER_CHUNK);
 
+	//  read the material table first, when the caller sent one. Only the count is
+	//  needed here: the filter info is the index itself, and the caller keeps the
+	//  table it sent to write back into the NIF.
+	int								numMaterials (0);
+
+	if (withMaterials)
+	{
+		infile >> numMaterials;
+
+		if (numMaterials > 0)
+		{
+			pCompMesh->m_namedMaterials.setSize(numMaterials);
+
+			for (int i(0); i < numMaterials; ++i)
+			{
+				pCompMesh->m_namedMaterials[i].m_filterInfo = i;
+				pCompMesh->m_materials.pushBack(i);
+			}
+		}
+	}
+
 	//  read number of geometries
 	infile >> numGeometries;
 
@@ -594,9 +624,19 @@ void mopperCompressedMesh(std::istream & infile)
 		hkArray<hkVector4>&				vertices (tGeo.m_vertices);
 		hkArray<hkGeometry::Triangle>&	triangles(tGeo.m_triangles);
 
+		int								materialIndex(0);
+
 		//  reset sizes
 		vertices.clear();
 		triangles.clear();
+
+		//  which entry of the table above this geometry is made of
+		if (withMaterials)
+		{
+			infile >> materialIndex;
+
+			if (materialIndex < 0 || materialIndex >= numMaterials)	materialIndex = 0;
+		}
 
 		//  read number of vertices
 		infile >> numVertices;
@@ -628,11 +668,13 @@ void mopperCompressedMesh(std::istream & infile)
 			//  early break on eof or error
 			if (infile.eof() || infile.fail())		return;
 
+			//  the material every triangle of this geometry carries, which is what
+			//  Havok reads to give the chunk its material index
+			triangle.m_material = materialIndex;
+
 			//  add vertex to vector
 			triangles.pushBack(triangle);
 		}
-
-		//  material indices later on
 
 
 		//  add geometry to CompressedMesh
@@ -809,6 +851,7 @@ int main(int argc, char *argv[])
 "command:\n"
 "  -msm\t: create MOPP data for bhkSimpleMeshShape\n"
 "  -ccm\t: create complete bhkCompressedMeshShape\n"
+"  -ccmm\t: as -ccm, with a material table and one material index per geometry\n"
 "  -clm\t: create MOPP data for a shape collection that is not a mesh,\n"
 "      \t  such as the bhkListShape of primitives under most MOPP trees\n\n"
 "where <file> (-- for standard input) is of the following format\n for bhkSimpleMeshShape:\n"
@@ -914,11 +957,22 @@ int main(int argc, char *argv[])
 	{
 		if (std::strcmp(argv[2], "--") == 0)
 		{
-			mopperCompressedMesh(std::cin);
+			mopperCompressedMesh(std::cin, false);
 		}
 		else
 		{
-			mopperCompressedMesh(std::ifstream(argv[2], std::ifstream::in));
+			mopperCompressedMesh(std::ifstream(argv[2], std::ifstream::in), false);
+		}
+	}
+	else if (std::strcmp(argv[1], "-ccmm") == 0)
+	{
+		if (std::strcmp(argv[2], "--") == 0)
+		{
+			mopperCompressedMesh(std::cin, true);
+		}
+		else
+		{
+			mopperCompressedMesh(std::ifstream(argv[2], std::ifstream::in), true);
 		}
 	}
 	else if (std::strcmp(argv[1], "-clm") == 0)
