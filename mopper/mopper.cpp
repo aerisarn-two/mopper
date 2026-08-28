@@ -587,8 +587,14 @@ void mopperCompressedMesh(std::istream & infile, bool withMaterials)
 	int								numTriangles (0);
 	int								subPartId    (0);
 
-	//  initialize shape Builder
-	shapeBuilder.m_stripperPasses = 5000;
+	//  initialize shape Builder, with the settings HKXWrangler uses for a _mesh
+	//  shape (HKXWrangler.cpp:3349). These decide how Havok cuts the mesh into
+	//  strips and which vertices it merges, and so decide the chunk arrays this
+	//  prints: a different stripper pass count is a different number of strips,
+	//  a different index list and different welding info for it.
+	shapeBuilder.m_stripperPasses = 1;
+	shapeBuilder.m_weldVertices   = true;
+	shapeBuilder.m_weldTolerance  = 0.001f;
 
 	//  create compressedMeshShape
 	pCompMesh = shapeBuilder.createMeshShape(0.001f, hkpCompressedMeshShape::MATERIAL_SINGLE_VALUE_PER_CHUNK);
