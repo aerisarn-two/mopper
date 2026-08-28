@@ -608,6 +608,11 @@ void mopperCompressedMesh(std::istream & infile, bool withMaterials)
 	{
 		infile >> numMaterials;
 
+		//  A table of none, with triangles that all claim entry 0, is a caller's
+		//  mistake rather than a description of the mesh. One entry is the least it
+		//  can mean.
+		if (numMaterials < 1)	numMaterials = 1;
+
 		if (numMaterials > 0)
 		{
 			pCompMesh->m_namedMaterials.setSize(numMaterials);
