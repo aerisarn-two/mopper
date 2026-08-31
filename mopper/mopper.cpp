@@ -592,6 +592,16 @@ int mopperCompressedMesh(std::istream & infile, bool withMaterials)
 	//  strips and which vertices it merges, and so decide the chunk arrays this
 	//  prints: a different stripper pass count is a different number of strips,
 	//  a different index list and different welding info for it.
+	//
+	//  They are also what loses a thin box its narrow faces. A twelve-triangle
+	//  collision box seven millimetres thick comes back as eight triangles in one
+	//  strip, where Bethesda's own chunk for it holds all twelve in strips of 10,
+	//  4 and 4 at this very quantisation. Not the welding -- unchanged with
+	//  m_weldVertices false, and all eight vertices survive either way -- nor the
+	//  tolerance, nor the pass count, each tried. ck-cmd builds it exactly this way
+	//  and loses them too, so matching it here is deliberate: this is the reference
+	//  behaviour, defect and all, and changing it would be a departure to argue for
+	//  separately.
 	shapeBuilder.m_stripperPasses = 1;
 	shapeBuilder.m_weldVertices   = true;
 	shapeBuilder.m_weldTolerance  = 0.001f;
