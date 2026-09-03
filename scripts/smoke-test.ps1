@@ -89,6 +89,21 @@ if ($LASTEXITCODE -ne 0) { Fail "-ccm exited $LASTEXITCODE" }
 elseif (@($ccm | Where-Object { $_ -ne '' }).Count -lt 10) { Fail '-ccm wrote almost nothing' }
 else { Pass "-ccm produced $(@($ccm).Count) lines" }
 
+# --- -ccmm reads a material table and an index per geometry ------------------
+
+#
+# Same mesh as testmesh_ccm.txt, with the two numbers -ccmm adds: a material
+# count in front, and the table entry this geometry is made of. The table is a
+# count only -- no names are read from the stream -- which is easy to get wrong
+# when writing input by hand.
+#
+$ccmmFixture = Join-Path $root 'mopper/testmesh_ccmm.txt'
+$ccmm = & $Exe -ccmm $ccmmFixture
+
+if ($LASTEXITCODE -ne 0) { Fail "-ccmm exited $LASTEXITCODE" }
+elseif (@($ccmm | Where-Object { $_ -ne '' }).Count -lt 10) { Fail '-ccmm wrote almost nothing' }
+else { Pass "-ccmm produced $(@($ccmm).Count) lines" }
+
 # --- bad input is refused, not crashed on ------------------------------------
 
 #
@@ -108,6 +123,7 @@ function Test-Rejects {
 Test-Rejects -Label 'unparseable -msm input'  -MopperArgs @('-msm', '--')  -Stdin 'not a mesh'
 Test-Rejects -Label 'unparseable -ccm input'  -MopperArgs @('-ccm', '--')  -Stdin 'not a mesh'
 Test-Rejects -Label 'unparseable -clm input'  -MopperArgs @('-clm', '--')  -Stdin 'not a shape'
+Test-Rejects -Label 'unparseable -ccmm input' -MopperArgs @('-ccmm', '--') -Stdin 'not a mesh'
 Test-Rejects -Label 'empty -msm input'        -MopperArgs @('-msm', '--')  -Stdin ''
 
 # A count larger than the vertices that follow it: the mesh stops mid-list.
