@@ -145,6 +145,7 @@ jobs:
       - uses: NuGet/setup-nuget@v2
 
       - name: Pack
+        id: pack
         shell: pwsh
         run: |
           nuget pack packaging/Mopper.Native.nuspec `
@@ -152,6 +153,26 @@ jobs:
             -BasePath staging `
             -OutputDirectory artifacts `
             -NoPackageAnalysis
+
+          #
+          # Resolve the package here and carry the real path forward. Nothing
+          # expands a wildcard on this platform: pwsh does not glob arguments to
+          # native commands, and NuGet took "artifacts/*.nupkg" literally and
+          # reported the file did not exist.
+          #
+          $pkg = @(Get-ChildItem -Path artifacts -Filter *.nupkg -File)
+
+          if ($pkg.Count -eq 0) {
+            Get-ChildItem -Path . -Filter *.nupkg -Recurse -File |
+              ForEach-Object { Write-Host "stray package at $($_.FullName)" }
+            throw 'nuget pack succeeded but left no .nupkg in artifacts/'
+          }
+
+          foreach ($p in $pkg) {
+            Write-Host ("packed {0} ({1:N2} MB)" -f $p.Name, ($p.Length / 1MB))
+          }
+
+          "package=$($pkg[0].FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - uses: actions/upload-artifact@v4
         with:
@@ -168,8 +189,9 @@ jobs:
       #
       - name: Publish to GitHub Packages
         if: steps.version.outputs.publish == 'true'
+        shell: pwsh
         run: >
-          dotnet nuget push artifacts/*.nupkg
+          dotnet nuget push '${{ steps.pack.outputs.package }}'
           --source https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
           --api-key ${{ secrets.GITHUB_TOKEN }}
           --skip-duplicate
