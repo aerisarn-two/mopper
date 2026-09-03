@@ -1,9 +1,17 @@
 mopper/mopper.vcxproj.user
-build/
+
+#
+# Anchored with a leading slash, all of them. An unanchored "build/" matches a
+# directory of that name at any depth, which quietly swallowed
+# packaging/build/Mopper.Native.targets -- git add said nothing, and the gap only
+# showed up as a missing file on the runner. Every entry here names one directory
+# at the top of the repository, so every entry says so.
+#
+/build/
 
 # CI working directories
-.havok/
-.msvc/
-.msvc-wine/
-staging/
-artifacts/
+/.havok/
+/.msvc/
+/.msvc-wine/
+/staging/
+/artifacts/

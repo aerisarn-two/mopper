@@ -1,0 +1,32 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <!--
+    NuGet imports this automatically because it is named for the package id and
+    sits in build/. $(MSBuildThisFileDirectory) resolves inside the extracted
+    package, so both paths below work from build/ and buildTransitive/.
+  -->
+
+  <PropertyGroup>
+    <MopperExePath Condition="'$(MopperExePath)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\tools\win-x86\mopper.exe'))</MopperExePath>
+  </PropertyGroup>
+
+  <ItemGroup Condition="Exists('$(MopperExePath)')">
+    <None Include="$(MopperExePath)">
+      <Link>mopper.exe</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+      <Pack>false</Pack>
+    </None>
+  </ItemGroup>
+
+  <!--
+    mopper.exe is win-x86 only. Copying it into a build that can never run it is
+    not an error, but it is worth saying so once.
+  -->
+  <Target Name="MopperWarnOnNonWindows"
+          BeforeTargets="Build"
+          Condition="'$(OS)' != 'Windows_NT'">
+    <Warning Text="Mopper.Native ships a 32-bit Windows executable; it will be copied to the output but cannot run on this platform." />
+  </Target>
+
+</Project>
