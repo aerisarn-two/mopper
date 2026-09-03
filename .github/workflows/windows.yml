@@ -88,13 +88,40 @@ jobs:
           if ('${{ inputs.havok-url }}') { $params.Url = '${{ inputs.havok-url }}' }
           ./scripts/fetch-havok.ps1 @params
 
+      # Which Visual Studio the runner carries changes as the image rolls
+      # forward, so record what this one has rather than guessing from a failure.
+      - name: Report the toolchain
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (Test-Path $vswhere) {
+            & $vswhere -latest -products '*' -format value `
+              -property catalog_productDisplayVersion
+            & $vswhere -latest -products '*' -format value -property displayName
+          } else {
+            Write-Host "no vswhere at $vswhere"
+          }
+          cmake --version
+          cmake --help | Select-String -Pattern 'Visual Studio'
+
       - name: Configure
         shell: pwsh
         run: |
-          cmake -B build -G "Visual Studio 17 2022" -A Win32 `
+          #
+          # No -G. Naming a generator pins a Visual Studio year, and the runner
+          # image moves on: "Visual Studio 17 2022" stopped resolving the moment
+          # the image shipped a newer one. CMake's default generator on Windows
+          # is the newest Visual Studio actually installed, which is the thing
+          # this wants in the first place.
+          #
+          cmake -B build -A Win32 `
             -DHAVOK_SDK_DIR="$env:HAVOK_SDK_DIR" `
             -DHAVOK_LIB_SUBDIR="$env:HAVOK_LIB_SUBDIR" `
             -DMOPPER_VERSION="${{ steps.version.outputs.version }}"
+
+          $generator = (Select-String -Path build/CMakeCache.txt `
+            -Pattern '^CMAKE_GENERATOR:INTERNAL=(.*)$').Matches[0].Groups[1].Value
+          Write-Host "configured with: $generator"
 
       - name: Build
         run: cmake --build build --config Release
