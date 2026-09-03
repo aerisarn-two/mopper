@@ -135,3 +135,11 @@ if ($failures -gt 0) {
 }
 
 Write-Host '==> all checks passed' -ForegroundColor Green
+
+#
+# Explicit, and not decoration. GitHub's pwsh shell ends with
+# `exit $LASTEXITCODE`, which is the exit code of the last *native* command --
+# here the last Test-Rejects case, where mopper is supposed to exit 1. Falling
+# off the end of the script therefore failed the step with every check green.
+#
+exit 0
