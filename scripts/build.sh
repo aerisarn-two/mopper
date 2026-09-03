@@ -10,12 +10,14 @@
 #   HAVOK_LIB_SUBDIR which Lib/ subdirectory to link
 #                    (default win32_net_9-0/release_multithreaded)
 #   BUILD_TYPE       CMake build type (default Release)
+#   MOPPER_VERSION   version stamped into mopper.exe (default 0.0.0)
 #
 set -euo pipefail
 
 MSVC_DIR="${MSVC_DIR:-$HOME/.local/share/msvc}"
 BUILD_TYPE="${BUILD_TYPE:-Release}"
 HAVOK_LIB_SUBDIR="${HAVOK_LIB_SUBDIR:-win32_net_9-0/release_multithreaded}"
+MOPPER_VERSION="${MOPPER_VERSION:-0.0.0}"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m error:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -48,7 +50,8 @@ CC=cl CXX=cl cmake -B "$BUILD_DIR" -G "$GENERATOR" \
     -DCMAKE_SYSTEM_NAME=Windows \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DHAVOK_SDK_DIR="$HAVOK_SDK_DIR" \
-    -DHAVOK_LIB_SUBDIR="$HAVOK_LIB_SUBDIR"
+    -DHAVOK_LIB_SUBDIR="$HAVOK_LIB_SUBDIR" \
+    -DMOPPER_VERSION="$MOPPER_VERSION"
 
 cmake --build "$BUILD_DIR" --config "$BUILD_TYPE"
 

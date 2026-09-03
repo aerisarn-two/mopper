@@ -1,0 +1,41 @@
+//
+// Generated from version.rc.in by CMake. Edit the template, not the output.
+//
+// The numbers come from MOPPER_VERSION, which CI sets from the git tag. A local
+// build leaves it at 0.0.0, which is the honest answer for an untagged binary.
+//
+#include <winver.h>
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION    @MOPPER_VERSION_MAJOR@,@MOPPER_VERSION_MINOR@,@MOPPER_VERSION_PATCH@,0
+ PRODUCTVERSION @MOPPER_VERSION_MAJOR@,@MOPPER_VERSION_MINOR@,@MOPPER_VERSION_PATCH@,0
+ FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
+#ifdef _DEBUG
+ FILEFLAGS      VS_FF_DEBUG
+#else
+ FILEFLAGS      0x0L
+#endif
+ FILEOS         VOS_NT_WINDOWS32
+ FILETYPE       VFT_APP
+ FILESUBTYPE    VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName",      "NIF File Format Library and Tools"
+            VALUE "FileDescription",  "Generates Havok MOPP collision trees"
+            VALUE "FileVersion",      "@MOPPER_VERSION@"
+            VALUE "InternalName",     "mopper"
+            VALUE "LegalCopyright",   "Copyright (c) 2008-2012, NIF File Format Library and Tools. Uses Havok, Copyright 1999-2012 Havok.com Inc. (and its Licensors)."
+            VALUE "OriginalFilename", "mopper.exe"
+            VALUE "ProductName",      "mopper"
+            VALUE "ProductVersion",   "@MOPPER_VERSION@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        // US English, Unicode.
+        VALUE "Translation", 0x409, 1200
+    END
+END

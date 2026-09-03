@@ -95,11 +95,47 @@ if(NOT HAVOK_LIBS)
     message(FATAL_ERROR "Found no Havok libraries in ${HAVOK_LIB_DIR}.")
 endif()
 
-add_executable(mopper
+#
+# Version stamped into the executable's VERSIONINFO resource, so a mopper.exe
+# found on its own can say which build it is. CI passes the git tag; a local
+# build stays at 0.0.0, which is the honest answer for an untagged binary.
+#
+set(MOPPER_VERSION "0.0.0" CACHE STRING
+    "Version to stamp into mopper.exe, e.g. 1.2.3 or 1.2.3-rc.1")
+
+# VERSIONINFO's numeric fields are four integers, so a prerelease suffix cannot
+# go there. It survives in the FileVersion and ProductVersion strings.
+if(NOT MOPPER_VERSION MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)")
+    message(FATAL_ERROR
+        "MOPPER_VERSION is '${MOPPER_VERSION}', expected MAJOR.MINOR.PATCH "
+        "with an optional suffix, such as 1.2.3 or 1.2.3-rc.1.")
+endif()
+
+set(MOPPER_VERSION_MAJOR "${CMAKE_MATCH_1}")
+set(MOPPER_VERSION_MINOR "${CMAKE_MATCH_2}")
+set(MOPPER_VERSION_PATCH "${CMAKE_MATCH_3}")
+
+set(MOPPER_SOURCES
     mopper/mopper.cpp
     mopper/stdafx.cpp
     mopper/crt_compat.cpp
 )
+
+# msvc-wine ships rc alongside cl, so this works from Linux too.
+if(WIN32)
+    enable_language(RC)
+
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/mopper/version.rc.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/version.rc"
+        @ONLY)
+
+    list(APPEND MOPPER_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/version.rc")
+
+    message(STATUS "mopper: stamping version ${MOPPER_VERSION}")
+endif()
+
+add_executable(mopper ${MOPPER_SOURCES})
 
 target_include_directories(mopper PRIVATE
     "${HAVOK_INCLUDE_DIR}"
