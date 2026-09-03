@@ -91,8 +91,27 @@ else { Pass "-ccm produced $(@($ccm).Count) lines" }
 
 # --- bad input is refused, not crashed on ------------------------------------
 
-'not a mesh' | & $Exe -msm -- 2>&1 | Out-Null
-if ($LASTEXITCODE -eq 0) { Fail 'unparseable input was accepted' } else { Pass 'unparseable input refused' }
+#
+# Every mode has to answer for what it was given. Reading it is not the point --
+# saying so in the exit status is, because a caller has nothing else to go on.
+# -msm and -clm used to exit 0 here, -clm even after printing the diagnosis.
+#
+function Test-Rejects {
+    param([string] $Label, [string[]] $MopperArgs, [string] $Stdin)
+
+    $Stdin | & $Exe @MopperArgs 2>&1 | Out-Null
+
+    if ($LASTEXITCODE -eq 0) { Fail "$Label was accepted, expected a non-zero exit" }
+    else { Pass "$Label refused (exit $LASTEXITCODE)" }
+}
+
+Test-Rejects -Label 'unparseable -msm input'  -MopperArgs @('-msm', '--')  -Stdin 'not a mesh'
+Test-Rejects -Label 'unparseable -ccm input'  -MopperArgs @('-ccm', '--')  -Stdin 'not a mesh'
+Test-Rejects -Label 'unparseable -clm input'  -MopperArgs @('-clm', '--')  -Stdin 'not a shape'
+Test-Rejects -Label 'empty -msm input'        -MopperArgs @('-msm', '--')  -Stdin ''
+
+# A count larger than the vertices that follow it: the mesh stops mid-list.
+Test-Rejects -Label 'truncated -msm input'    -MopperArgs @('-msm', '--')  -Stdin "8`n1 1 1`n"
 
 if ($failures -gt 0) {
     Write-Host "==> $failures check(s) failed" -ForegroundColor Red

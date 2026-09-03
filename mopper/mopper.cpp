@@ -156,7 +156,7 @@ hkpMoppCode* buildCodeCompressedMesh(const hkpCompressedMeshShape* mesh, const h
 }
 
 /*-------------------------------------------------------------------------*/
-void mopperSimpleMesh(std::istream & infile)
+int mopperSimpleMesh(std::istream & infile)
 {
 	hkpMoppCode*							k_phkpMoppCode    (NULL);
 	hkpSimpleMeshShape*						list              (new hkpSimpleMeshShape(0.01f));
@@ -168,7 +168,7 @@ void mopperSimpleMesh(std::istream & infile)
 	float									y                 (0.0);
 	float									z                 (0.0);
 	int										numvertices       (0);
-	int										numtriangles;     (0);
+	int										numtriangles      (0);
 	int										nummaterialindices(0);
 
 	//  reset size of vectors
@@ -179,14 +179,29 @@ void mopperSimpleMesh(std::istream & infile)
 	//  read number of vertices
 	infile >> numvertices;
 
+	//  A count this did not really read is a loop over garbage, and a count it read
+	//  as zero because the stream failed is a MOPP tree over an empty shape, built
+	//  and printed as though it meant something. Bounds and messages match the
+	//  compressed mesh path, which was given the same treatment first.
+	if (infile.fail() || numvertices < 0 || numvertices > 10000000)
+	{
+		std::cerr << "mopper: bad vertex count" << std::endl;
+		return 1;
+	}
+
 	//  read each vertex
 	for (int i(0); i < numvertices; ++i)
 	{
 		//  read coordinates
 		infile >> x >> y >> z;
 
-		//  early break on eof or error
-		if (infile.eof() || infile.fail())		return;
+		//  Truncated input. Returning here used to hand back whatever had been read
+		//  so far as though it were the whole mesh.
+		if (infile.eof() || infile.fail())
+		{
+			std::cerr << "mopper: input ended in the middle of the mesh" << std::endl;
+			return 1;
+		}
 
 		//  add vertex to vector
 		vertices.pushBack(hkVector4(x, y, z));
@@ -194,6 +209,12 @@ void mopperSimpleMesh(std::istream & infile)
 
 	//  read number of triangles
 	infile >> numtriangles;
+
+	if (infile.fail() || numtriangles < 0 || numtriangles > 10000000)
+	{
+		std::cerr << "mopper: bad triangle count" << std::endl;
+		return 1;
+	}
 
 	//  read each triangle
 	for (int i(0); i < numtriangles; ++i)
@@ -203,8 +224,13 @@ void mopperSimpleMesh(std::istream & infile)
 		//  read vertex indices
 		infile >> hktri.m_a >> hktri.m_b >> hktri.m_c;
 
-		//  early break on eof or error
-		if (infile.eof() || infile.fail())		return;
+		//  Truncated input. Returning here used to hand back whatever had been read
+		//  so far as though it were the whole mesh.
+		if (infile.eof() || infile.fail())
+		{
+			std::cerr << "mopper: input ended in the middle of the mesh" << std::endl;
+			return 1;
+		}
 
 		//  add triangle to vector
 		triangles.pushBack(hktri);
@@ -212,6 +238,22 @@ void mopperSimpleMesh(std::istream & infile)
 
 	//  read number of material indices
 	infile >> nummaterialindices;
+
+	//  Unlike the two counts above, this one is optional: --help documents the
+	//  format as ending after the triangles, and testmesh.txt's trailing 0 is a
+	//  courtesy rather than part of it. A stream that ends here has said all it
+	//  meant to, so only a count that was actually read and makes no sense is
+	//  refused. Treating a failed read as an error would reject input that has
+	//  always worked.
+	if (infile.fail())
+	{
+		nummaterialindices = 0;
+	}
+	else if (nummaterialindices < 0 || nummaterialindices > 10000000)
+	{
+		std::cerr << "mopper: bad material index count" << std::endl;
+		return 1;
+	}
 
 	//  read each material index
 	for (int i(0); i < nummaterialindices; ++i)
@@ -221,8 +263,13 @@ void mopperSimpleMesh(std::istream & infile)
 		//  read index
 		infile >> matindex;
 
-		//  early break on eof or error
-		if (infile.eof() || infile.fail())		return;
+		//  Truncated input. Returning here used to hand back whatever had been read
+		//  so far as though it were the whole mesh.
+		if (infile.eof() || infile.fail())
+		{
+			std::cerr << "mopper: input ended in the middle of the mesh" << std::endl;
+			return 1;
+		}
 
 		//  add material index to vector
 		materialindices.pushBack(matindex);
@@ -280,6 +327,8 @@ void mopperSimpleMesh(std::istream & infile)
 		k_phkpMoppCode->removeReference();
 		k_phkpMoppCode = NULL;
 	}
+
+	return 0;
 }
 
 /*-------------------------------------------------------------------------*/
@@ -505,7 +554,7 @@ hkpMoppCode* buildCodeContainer(const hkpShapeContainer* container, const hkpMop
 //  The output matches -msm, so a caller can read either the same way, with the
 //  welding count zero: a list has no triangles to weld.
 //
-void mopperCollection(std::istream & infile)
+int mopperCollection(std::istream & infile)
 {
 	bool					isConvex          (false);
 	hkpShape*				shape             (readShape(infile, isConvex));
@@ -514,7 +563,7 @@ void mopperCollection(std::istream & infile)
 	if (shape == NULL)
 	{
 		std::cerr << "mopper: could not read the shape collection" << std::endl;
-		return;
+		return 1;
 	}
 
 	const hkpShapeContainer*	container(NULL);
@@ -531,7 +580,7 @@ void mopperCollection(std::istream & infile)
 
 		shape->removeReference();
 
-		return;
+		return 1;
 	}
 
 	//  The PC build, as HKXWrangler sets it: chunk subdivision is for PS3.
@@ -559,8 +608,21 @@ void mopperCollection(std::istream & infile)
 
 		code->removeReference();
 	}
+	else
+	{
+		//  A tree that was never built is not a success either. -ccm refuses a null
+		//  code before building the tree that would dereference it; this printed
+		//  nothing and exited 0.
+		std::cerr << "mopper: no MOPP code was built for the collection" << std::endl;
+
+		shape->removeReference();
+
+		return 1;
+	}
 
 	shape->removeReference();
+
+	return 0;
 }
 
 /*-------------------------------------------------------------------------*/
@@ -1028,62 +1090,68 @@ int main(int argc, char *argv[])
 	hkMemoryRouter*		pMemoryRouter(hkMemoryInitUtil::initDefault(hkMallocAllocator::m_defaultMallocAllocator, hkMemorySystem::FrameInfo(500000)));
 	hkBaseSystem::init(pMemoryRouter, errorReport);
 
-	// Call main program.
+	//  Call main program. Every mode reports whether it could read what it was
+	//  given, and that answer is this program's exit status: -ccm was already
+	//  returning it, and the others discarded it and exited 0 regardless.
+	int	result(0);
+
 	if (std::strcmp(argv[1], "--") == 0)  //  backward compatibility
 	{
-		mopperSimpleMesh(std::cin);
+		result = mopperSimpleMesh(std::cin);
 	}
 	else if (std::strcmp(argv[1], "-msm") == 0)
 	{
 		if (std::strcmp(argv[2], "--") == 0)
 		{
-			mopperSimpleMesh(std::cin);
+			result = mopperSimpleMesh(std::cin);
 		}
 		else
 		{
-			mopperSimpleMesh(std::ifstream(argv[2], std::ifstream::in));
+			result = mopperSimpleMesh(std::ifstream(argv[2], std::ifstream::in));
 		}
 	}
 	else if (std::strcmp(argv[1], "-ccm") == 0)
 	{
 		if (std::strcmp(argv[2], "--") == 0)
 		{
-			return mopperCompressedMesh(std::cin, false);
+			result = mopperCompressedMesh(std::cin, false);
 		}
 		else
 		{
-			return mopperCompressedMesh(std::ifstream(argv[2], std::ifstream::in), false);
+			result = mopperCompressedMesh(std::ifstream(argv[2], std::ifstream::in), false);
 		}
 	}
 	else if (std::strcmp(argv[1], "-ccmm") == 0)
 	{
 		if (std::strcmp(argv[2], "--") == 0)
 		{
-			return mopperCompressedMesh(std::cin, true);
+			result = mopperCompressedMesh(std::cin, true);
 		}
 		else
 		{
-			return mopperCompressedMesh(std::ifstream(argv[2], std::ifstream::in), true);
+			result = mopperCompressedMesh(std::ifstream(argv[2], std::ifstream::in), true);
 		}
 	}
 	else if (std::strcmp(argv[1], "-clm") == 0)
 	{
 		if (std::strcmp(argv[2], "--") == 0)
 		{
-			mopperCollection(std::cin);
+			result = mopperCollection(std::cin);
 		}
 		else
 		{
-			mopperCollection(std::ifstream(argv[2], std::ifstream::in));
+			result = mopperCollection(std::ifstream(argv[2], std::ifstream::in));
 		}
 	}
 	else  //  backward compatibility
 	{
-		mopperSimpleMesh(std::ifstream(argv[1], std::ifstream::in));
+		result = mopperSimpleMesh(std::ifstream(argv[1], std::ifstream::in));
 	}
 
-	// Quit base system
+	// Quit base system. The compressed mesh path used to return straight out of
+	// the branch and skip this; going through one exit means every mode shuts
+	// Havok down the same way.
 	hkBaseSystem::quit();
 
-	return 0;
+	return result;
 }
