@@ -1,0 +1,91 @@
+#
+# Checks that the msvc-wine build path README-linux.md documents still works.
+#
+# Manual only. It downloads several GB of MSVC on a cold cache and Wine is the
+# least predictable thing in this repository, so it is not something to hang
+# every tag on. Run it after touching CMakeLists.txt, the scripts, or when a new
+# msvc-wine release lands.
+#
+name: linux (msvc-wine)
+
+on:
+  workflow_dispatch:
+    inputs:
+      havok-url:
+        description: 'Override where the Havok SDK is downloaded from'
+        required: false
+        type: string
+      run-binary:
+        description: 'Install wine32 and run the built exe (slower)'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  HAVOK_LIB_SUBDIR: win32_net_9-0/release_multithreaded
+  MSVC_DIR: ${{ github.workspace }}/.msvc
+  MSVC_WINE_DIR: ${{ github.workspace }}/.msvc-wine
+
+jobs:
+  build:
+    # install-deps.sh asks apt for `wine64`, a package name Ubuntu dropped after
+    # 22.04 in favour of a plain `wine` metapackage. Pinning the image keeps this
+    # workflow honest about the script as written; change both together.
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable i386 so the built exe can be run
+        if: inputs.run-binary
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y wine32:i386
+
+      #
+      # vsdownload.py pulls a few GB from Microsoft. Keyed on the msvc-wine
+      # commit so a toolchain change invalidates it, and nothing else does.
+      #
+      - name: Work out the msvc-wine revision
+        id: msvc-rev
+        run: |
+          rev="$(git ls-remote https://github.com/mstorsjo/msvc-wine HEAD | cut -f1)"
+          echo "rev=$rev" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the MSVC toolchain
+        id: msvc-cache
+        uses: actions/cache@v4
+        with:
+          path: .msvc
+          key: msvc-wine-${{ steps.msvc-rev.outputs.rev }}-v1
+
+      - name: Restore the Havok SDK
+        id: havok-cache
+        uses: actions/cache@v4
+        with:
+          path: .havok
+          key: havok-2010.2-164b856d-${{ env.HAVOK_LIB_SUBDIR }}-v1
+
+      - name: Fetch the Havok SDK
+        if: steps.havok-cache.outputs.cache-hit != 'true'
+        env:
+          HAVOK_URL: ${{ inputs.havok-url }}
+        run: |
+          sudo apt-get install -y p7zip-full
+          ./scripts/fetch-havok.sh "${{ github.workspace }}/.havok"
+
+      - name: Install the toolchain
+        run: ./scripts/install-deps.sh
+
+      - name: Build
+        run: ./scripts/build.sh "${{ github.workspace }}/.havok"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mopper-linux-build
+          path: build/mopper.exe
+          if-no-files-found: error

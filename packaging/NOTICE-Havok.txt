@@ -1,0 +1,12 @@
+mopper.exe in this package is statically linked against the Havok SDK
+(Havok Physics/Animation 2010.2.0 PC XS, win32, VS2008 libraries).
+
+    Havok. Copyright 1999-2012 Havok.com Inc. (and its Licensors).
+    All Rights Reserved. See www.havok.com for details.
+
+mopper's own source is BSD licensed; see LICENSE.TXT. That licence covers
+mopper, not the Havok code compiled into the executable, which remains subject
+to the Havok licence agreement under which the SDK was obtained.
+
+The Havok SDK itself is not redistributed by this package or by mopper's
+repository, and is not included here in source or library form.

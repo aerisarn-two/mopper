@@ -1,2 +1,9 @@
 mopper/mopper.vcxproj.user
 build/
+
+# CI working directories
+.havok/
+.msvc/
+.msvc-wine/
+staging/
+artifacts/

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>Mopper.Native</id>
+    <version>0.0.0</version>
+    <title>Mopper (native win-x86 tool)</title>
+    <authors>NIF File Format Library and Tools</authors>
+    <owners>aerisarn</owners>
+    <projectUrl>https://github.com/aerisarn-two/mopper</projectUrl>
+    <license type="file">LICENSE.TXT</license>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>
+      mopper.exe, the command line tool that generates Havok MOPP collision trees
+      for bhkMoppBvTreeShape and bhkCompressedMeshShape. Referencing this package
+      copies mopper.exe into your build output and sets $(MopperExePath).
+
+      This package carries a native 32-bit Windows executable and no managed
+      assembly. The executable statically links the Havok SDK; see
+      NOTICE-Havok.txt.
+    </description>
+    <summary>Generates Havok MOPP collision trees for NIF tools.</summary>
+    <tags>havok mopp nif collision skyrim native tool</tags>
+    <repository type="git" url="https://github.com/aerisarn-two/mopper" />
+  </metadata>
+  <files>
+    <file src="mopper.exe" target="tools\win-x86\mopper.exe" />
+    <file src="build\Mopper.Native.targets" target="build\Mopper.Native.targets" />
+    <file src="build\Mopper.Native.targets" target="buildTransitive\Mopper.Native.targets" />
+    <file src="LICENSE.TXT" target="LICENSE.TXT" />
+    <file src="NOTICE-Havok.txt" target="NOTICE-Havok.txt" />
+
+    <!--
+      A placeholder so restore sees a framework-compatible asset. Without it,
+      consumers get "does not contain any assets compatible with the target
+      framework" even though the build/ targets import correctly.
+    -->
+    <file src="_._" target="lib\netstandard2.0\_._" />
+  </files>
+</package>

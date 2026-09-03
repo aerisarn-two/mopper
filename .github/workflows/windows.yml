@@ -1,0 +1,165 @@
+#
+# Builds mopper.exe with the native MSVC toolchain, tests it, and publishes it
+# to GitHub Packages.
+#
+# Tagging is the trigger, so build and release are one workflow: two workflows on
+# the same tag would build the same binary twice and could publish a different
+# one from the one that was tested.
+#
+# Use workflow_dispatch to build and test without publishing anything.
+#
+name: windows
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      havok-url:
+        description: 'Override where the Havok SDK is downloaded from'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  # Must match the fetch scripts and CMake's HAVOK_LIB_SUBDIR default.
+  HAVOK_LIB_SUBDIR: win32_net_9-0/release_multithreaded
+  HAVOK_SDK_DIR: ${{ github.workspace }}\.havok
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    permissions:
+      contents: write   # to create the release
+      packages: write   # to publish to GitHub Packages
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the version
+        id: version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $version = $env:GITHUB_REF -replace '^refs/tags/v', ''
+
+            # Reject a malformed tag here rather than after a ten minute build,
+            # which is where nuget pack would otherwise notice.
+            $semver = '^\d+\.\d+\.\d+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+            if ($version -notmatch $semver) {
+              throw "tag '$($env:GITHUB_REF -replace '^refs/tags/', '')' is not a version. Expected vMAJOR.MINOR.PATCH, optionally with a prerelease suffix, e.g. v1.2.3 or v1.2.3-rc.1"
+            }
+
+            $publish = 'true'
+          } else {
+            # Not a release: still pack, so packaging breakage shows up here
+            # rather than on the tag, but do not push it anywhere.
+            $version = "0.0.0-ci.$env:GITHUB_RUN_NUMBER"
+            $publish = 'false'
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "publish=$publish" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "version $version, publish $publish"
+
+      #
+      # Keyed on the archive's SHA1, so the 472 MB download happens once and
+      # never again unless the pin changes. GitHub evicts caches after 7 days
+      # idle, which is the only thing that brings the download back.
+      #
+      - name: Restore the Havok SDK
+        id: havok-cache
+        uses: actions/cache@v4
+        with:
+          path: .havok
+          key: havok-2010.2-164b856d-${{ env.HAVOK_LIB_SUBDIR }}-v1
+
+      - name: Fetch the Havok SDK
+        if: steps.havok-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $params = @{
+            Destination = $env:HAVOK_SDK_DIR
+            LibSubdir   = $env:HAVOK_LIB_SUBDIR
+          }
+          if ('${{ inputs.havok-url }}') { $params.Url = '${{ inputs.havok-url }}' }
+          ./scripts/fetch-havok.ps1 @params
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -B build -G "Visual Studio 17 2022" -A Win32 `
+            -DHAVOK_SDK_DIR="$env:HAVOK_SDK_DIR" `
+            -DHAVOK_LIB_SUBDIR="$env:HAVOK_LIB_SUBDIR" `
+            -DMOPPER_VERSION="${{ steps.version.outputs.version }}"
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      # A 32-bit binary runs natively here under WOW64, so this checks the
+      # output is a well-formed MOPP tree, not just that the build linked.
+      - name: Smoke test
+        shell: pwsh
+        run: ./scripts/smoke-test.ps1 -Exe build/Release/mopper.exe
+
+      - name: Stage the package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path staging/build | Out-Null
+          Copy-Item build/Release/mopper.exe staging/
+          Copy-Item packaging/build/Mopper.Native.targets staging/build/
+          Copy-Item packaging/NOTICE-Havok.txt staging/
+          Copy-Item packaging/_._ staging/
+          Copy-Item LICENSE.TXT staging/
+
+      - uses: NuGet/setup-nuget@v2
+
+      - name: Pack
+        shell: pwsh
+        run: |
+          nuget pack packaging/Mopper.Native.nuspec `
+            -Version ${{ steps.version.outputs.version }} `
+            -BasePath staging `
+            -OutputDirectory artifacts `
+            -NoPackageAnalysis
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mopper-${{ steps.version.outputs.version }}
+          path: |
+            build/Release/mopper.exe
+            artifacts/*.nupkg
+          if-no-files-found: error
+
+      #
+      # GITHUB_TOKEN is enough for GitHub Packages, so there is no secret to
+      # configure. Consumers need a nuget.config pointing at this feed and a PAT
+      # with read:packages -- see README-ci.md.
+      #
+      - name: Publish to GitHub Packages
+        if: steps.version.outputs.publish == 'true'
+        run: >
+          dotnet nuget push artifacts/*.nupkg
+          --source https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
+          --api-key ${{ secrets.GITHUB_TOKEN }}
+          --skip-duplicate
+
+      #
+      # Created after the package push, so a failed push never leaves a release
+      # advertising a version that is not on the feed. Carries the same binary
+      # the smoke test ran and the same .nupkg that was published.
+      #
+      - name: Create the GitHub release
+        if: steps.version.outputs.publish == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: mopper ${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+          fail_on_unmatched_files: true
+          files: |
+            build/Release/mopper.exe
+            artifacts/*.nupkg
