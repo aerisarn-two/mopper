@@ -104,6 +104,92 @@ if ($LASTEXITCODE -ne 0) { Fail "-ccmm exited $LASTEXITCODE" }
 elseif (@($ccmm | Where-Object { $_ -ne '' }).Count -lt 10) { Fail '-ccmm wrote almost nothing' }
 else { Pass "-ccmm produced $(@($ccmm).Count) lines" }
 
+# --- animation codec round trip ----------------------------------------------
+
+#
+# Synthetic on purpose: real animations are game data that cannot live in this
+# repository or reach a runner, and the property worth checking does not need
+# them. Build a set of per-frame samples, compress it, decompress it again, and
+# see whether the samples came back.
+#
+# This catches the codec being linked but not working -- a missing hka library,
+# an unregistered class, a wrong reflected member name -- which a build alone
+# would not notice.
+#
+$animDir = Join-Path ([System.IO.Path]::GetTempPath()) "mopper-anim-$PID"
+New-Item -ItemType Directory -Force -Path $animDir | Out-Null
+
+try {
+    $frames = 30
+    $tracks = 3
+    $frameDuration = 1.0 / 30.0
+    $samples = Join-Path $animDir 'in.sm'
+    $packed  = Join-Path $animDir 'packed.sc'
+    $back    = Join-Path $animDir 'out.sm'
+
+    $writer = [System.IO.BinaryWriter]::new([System.IO.File]::Create($samples))
+    try {
+        $writer.Write([System.Text.Encoding]::ASCII.GetBytes('HKANIMSM'))
+        $writer.Write([int] 1)
+        $writer.Write([int] $frames)
+        $writer.Write([int] $tracks)
+        $writer.Write([int] 0)
+        $writer.Write([float] ($frameDuration * ($frames - 1)))
+        $writer.Write([float] $frameDuration)
+
+        # A track sliding along X, one rotating about Z, one held still. Enough
+        # movement that a codec dropping a track shows up as a big deviation.
+        for ($f = 0; $f -lt $frames; $f++) {
+            $t = $f / [double] ($frames - 1)
+            for ($k = 0; $k -lt $tracks; $k++) {
+                $x = if ($k -eq 0) { [float] ($t * 10.0) } else { [float] 0.0 }
+                $angle = if ($k -eq 1) { $t * [Math]::PI * 0.5 } else { 0.0 }
+
+                $writer.Write([float] $x); $writer.Write([float] 0); $writer.Write([float] 0)
+                $writer.Write([float] 0); $writer.Write([float] 0)
+                $writer.Write([float] [Math]::Sin($angle / 2.0))
+                $writer.Write([float] [Math]::Cos($angle / 2.0))
+                $writer.Write([float] 1); $writer.Write([float] 1); $writer.Write([float] 1)
+            }
+        }
+    }
+    finally { $writer.Dispose() }
+
+    & $Exe -anim-compress $samples $packed | Out-Null
+    if ($LASTEXITCODE -ne 0) { Fail "-anim-compress exited $LASTEXITCODE" }
+    elseif (-not (Test-Path $packed)) { Fail '-anim-compress wrote no output' }
+    else {
+        Pass "-anim-compress produced $((Get-Item $packed).Length) bytes"
+
+        & $Exe -anim-decompress $packed $back | Out-Null
+        if ($LASTEXITCODE -ne 0) { Fail "-anim-decompress exited $LASTEXITCODE" }
+        elseif (-not (Test-Path $back)) { Fail '-anim-decompress wrote no output' }
+        else {
+            $a = [System.IO.File]::ReadAllBytes($samples)
+            $b = [System.IO.File]::ReadAllBytes($back)
+
+            if ($a.Length -ne $b.Length) {
+                Fail "round trip changed the sample count ($($a.Length) -> $($b.Length) bytes)"
+            }
+            else {
+                # Compare the floats after the 28-byte header.
+                $worst = 0.0
+                for ($i = 28; $i -lt $a.Length; $i += 4) {
+                    $x = [BitConverter]::ToSingle($a, $i)
+                    $y = [BitConverter]::ToSingle($b, $i)
+                    $d = [Math]::Abs($x - $y)
+                    if ($d -gt $worst) { $worst = $d }
+                }
+
+                # Lossy by design; this only has to show the animation survived.
+                if ($worst -gt 0.05) { Fail "round trip deviates by $worst" }
+                else { Pass "codec round trip within $([Math]::Round($worst, 5))" }
+            }
+        }
+    }
+}
+finally { Remove-Item -Recurse -Force $animDir -ErrorAction SilentlyContinue }
+
 # --- bad input is refused, not crashed on ------------------------------------
 
 #
@@ -128,6 +214,18 @@ Test-Rejects -Label 'empty -msm input'        -MopperArgs @('-msm', '--')  -Stdi
 
 # A count larger than the vertices that follow it: the mesh stops mid-list.
 Test-Rejects -Label 'truncated -msm input'    -MopperArgs @('-msm', '--')  -Stdin "8`n1 1 1`n"
+
+# The animation modes take paths, so they answer for a file that is not one of
+# theirs rather than for stdin.
+$notAnAnimation = Join-Path ([System.IO.Path]::GetTempPath()) "mopper-notanim-$PID"
+Set-Content -Path $notAnAnimation -Value 'not an animation' -NoNewline
+try {
+    Test-Rejects -Label 'unparseable -anim-decompress input' `
+        -MopperArgs @('-anim-decompress', $notAnAnimation, "$notAnAnimation.out") -Stdin ''
+    Test-Rejects -Label 'unparseable -anim-compress input' `
+        -MopperArgs @('-anim-compress', $notAnAnimation, "$notAnAnimation.out") -Stdin ''
+}
+finally { Remove-Item -Force $notAnAnimation, "$notAnAnimation.out" -ErrorAction SilentlyContinue }
 
 if ($failures -gt 0) {
     Write-Host "==> $failures check(s) failed" -ForegroundColor Red

@@ -79,6 +79,9 @@ set(HAVOK_CANDIDATE_LIBS
     hkpVehicle
     hkcdCollide
     hkcdInternal
+    hkaAnimation
+    hkaInternal
+    hkaRagdoll
 )
 
 set(HAVOK_LIBS "")
@@ -117,6 +120,7 @@ set(MOPPER_VERSION_PATCH "${CMAKE_MATCH_3}")
 
 set(MOPPER_SOURCES
     mopper/mopper.cpp
+    mopper/animation.cpp
     mopper/stdafx.cpp
     mopper/crt_compat.cpp
 )

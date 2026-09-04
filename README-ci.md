@@ -4,7 +4,7 @@ Two workflows, both deliberately not on every push.
 
 | Workflow | Runs on | What it does |
 | --- | --- | --- |
-| `windows.yml` | a `v*` tag, or manually | Builds with native MSVC, tests the binary, packs `Mopper.Native`, publishes to GitHub Packages |
+| `windows.yml` | a `v*` tag, or manually | Builds with native MSVC, tests the binary and the animation codec, packs `Mopper.Native`, publishes to GitHub Packages |
 | `linux.yml` | manually only | Rebuilds through msvc-wine, to check `README-linux.md` still describes reality |
 
 Building and releasing share one workflow because they share a trigger. Split
@@ -57,6 +57,14 @@ The test asserts that whole structure against `mopper/testmesh.txt`, checks
 input is refused rather than crashed on. That catches an empty tree, a truncated
 write, and a binary that runs but computes nothing — none of which a build alone
 would notice.
+
+It also round-trips the animation codec: build a set of per-frame samples,
+`-anim-compress` them, `-anim-decompress` the result, and check the samples came
+back. The samples are synthetic, deliberately — real animations are game data
+that cannot live here or reach a runner, and the property worth checking does
+not need them. It catches the codec being linked but not working: a missing
+`hka` library, a class that was never registered, a reflected member name that
+moved.
 
 Once you have blessed a known-good MOPP code, this can tighten to a golden-file
 comparison; both fixtures are deterministic.
