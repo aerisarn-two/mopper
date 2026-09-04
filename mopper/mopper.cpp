@@ -83,14 +83,18 @@
 #include <Physics/Collide/Shape/Misc/Transform/hkpTransformShape.h>
 #include <Common/Internal/ConvexHull/hkGeometryUtility.h>
 
+#include "animation.h"
+
 #include <Common/Base/keycode.cxx>
 // see Common/Base/Config/hkProductFeatures.inl
 #undef HK_FEATURE_PRODUCT_AI
-#undef HK_FEATURE_PRODUCT_ANIMATION
 #undef HK_FEATURE_PRODUCT_CLOTH
 #undef HK_FEATURE_PRODUCT_DESTRUCTION
 #undef HK_FEATURE_PRODUCT_BEHAVIOR
 #define HK_FEATURE_PRODUCT_PHYSICS
+// Animation stays registered: the -anim- commands construct and sample
+// hkaSplineCompressedAnimation, which needs its class registered like any other.
+#define HK_FEATURE_PRODUCT_ANIMATION
 #include <Common/Base/Config/hkProductFeatures.cxx> 
 
 // The CMake build links Havok itself, picking the libraries that the configured
@@ -112,6 +116,9 @@
 #pragma comment(lib, "hkpInternal.lib")
 #pragma comment(lib, "hkpUtilities.lib")
 #pragma comment(lib, "hkpVehicle.lib")
+#pragma comment(lib, "hkaAnimation.lib")
+#pragma comment(lib, "hkaInternal.lib")
+#pragma comment(lib, "hkaRagdoll.lib")
 #endif
 
 /*-------------------------------------------------------------------------*/
@@ -1005,6 +1012,9 @@ int main(int argc, char *argv[])
 "  -msm\t: create MOPP data for bhkSimpleMeshShape\n"
 "  -ccm\t: create complete bhkCompressedMeshShape\n"
 "  -ccmm\t: as -ccm, with a material table and one material index per geometry\n"
+"  -anim-decompress <in> <out>\t: spline-compressed animation to per-frame samples\n"
+"  -anim-compress <in> <out> [tolerance] [rotationQuantization]\n"
+"       \t: per-frame samples to spline-compressed animation\n"
 "  -clm\t: create MOPP data for a shape collection that is not a mesh,\n"
 "      \t  such as the bhkListShape of primitives under most MOPP trees\n\n"
 "where <file> (-- for standard input) is of the following format\n for bhkSimpleMeshShape:\n"
@@ -1141,6 +1151,33 @@ int main(int argc, char *argv[])
 		else
 		{
 			result = mopperCollection(std::ifstream(argv[2], std::ifstream::in));
+		}
+	}
+	//
+	//  The animation modes take paths rather than streams. Their payload is float
+	//  data that has to survive bit for bit, and a Windows stdout in text mode
+	//  would rewrite every 0x0A in it.
+	//
+	else if (std::strcmp(argv[1], "-anim-decompress") == 0
+		  || std::strcmp(argv[1], "-anim-compress") == 0)
+	{
+		if (argc < 4)
+		{
+			std::cerr << "mopper: " << argv[1] << " needs an input and an output file"
+					  << std::endl;
+			result = 1;
+		}
+		else if (std::strcmp(argv[1], "-anim-decompress") == 0)
+		{
+			result = mopperAnimDecompress(argv[2], argv[3]);
+		}
+		else
+		{
+			//  Optional, and left at the SDK's defaults when absent.
+			float tolerance = (argc > 4) ? (float)std::atof(argv[4]) : -1.0f;
+			int   rotation  = (argc > 5) ? std::atoi(argv[5]) : -1;
+
+			result = mopperAnimCompress(argv[2], argv[3], tolerance, rotation);
 		}
 	}
 	else  //  backward compatibility
